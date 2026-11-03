@@ -22,6 +22,7 @@ export interface HomeDashboardStrategyConfig {
   type: "home";
   alert_entities?: SecurityAlertEntityConfig[];
   maintenance_hidden_entities?: string[];
+  climate_hidden_entities?: string[];
   favorite_entities?: string[];
   home_panel?: boolean;
   hide_welcome_message?: boolean;
@@ -74,6 +75,7 @@ export class HomeDashboardStrategy extends ReactiveElement {
           type: "home-area",
           area: area.area_id,
           maintenance_hidden_entities: config.maintenance_hidden_entities,
+          climate_hidden_entities: config.climate_hidden_entities,
           home_panel: config.home_panel,
         } satisfies HomeAreaViewStrategyConfig,
       };
@@ -109,6 +111,7 @@ export class HomeDashboardStrategy extends ReactiveElement {
             type: "home-overview",
             alert_entities: config.alert_entities,
             maintenance_hidden_entities: config.maintenance_hidden_entities,
+            climate_hidden_entities: config.climate_hidden_entities,
             favorite_entities: config.favorite_entities,
             home_panel: config.home_panel,
             hide_welcome_message: config.hide_welcome_message,
