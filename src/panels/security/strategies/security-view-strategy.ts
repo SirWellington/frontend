@@ -21,15 +21,28 @@ import type {
 import type { LovelaceViewConfig } from "../../../data/lovelace/config/view";
 import type { SecurityAlertEntityConfig } from "../../../data/frontend";
 import type { HomeAssistant } from "../../../types";
-import type { LogbookCardConfig } from "../../lovelace/cards/types";
+import type {
+  EntityVisibilityCardConfig,
+  LogbookCardConfig,
+} from "../../lovelace/cards/types";
 import { computeAreaTileCardConfig } from "../../lovelace/strategies/areas/helpers/areas-strategy-helper";
+import {
+  wrapEntityVisibility,
+  type ComputeEntityCard,
+} from "../../lovelace/strategies/helpers/entity-visibility";
 import { computeFavoriteCardConfig } from "../../lovelace/strategies/helpers/favorite-cards";
-import { computeSecurityAlertCardConfig } from "./security-alerts";
+import {
+  computeSecurityAlertCardConfig,
+  computeSecurityAlertColor,
+  resolveSecurityAlertSeverity,
+} from "./security-alerts";
 
 export interface SecurityViewStrategyConfig {
   type: "security";
   alert_entities?: SecurityAlertEntityConfig[];
   favorite_entities?: string[];
+  hidden_entities?: string[];
+  edit_visibility?: boolean;
 }
 
 export const securityEntityFilters: EntityFilter[] = [
@@ -79,8 +92,11 @@ export const securityEntityFilters: EntityFilter[] = [
   },
 ];
 
-export const findSecurityEntities = (sources: EntityFilterSources): string[] =>
-  findFilteredEntities(sources, securityEntityFilters);
+export const findSecurityEntities = (
+  sources: EntityFilterSources,
+  hiddenEntities?: string[]
+): string[] =>
+  findFilteredEntities(sources, securityEntityFilters, hiddenEntities);
 
 export const isSecurityPanelEntity = (
   hass: EntityFilterSources,
@@ -100,7 +116,8 @@ export const isSecurityPanelEntity = (
 const processAreasForSecurity = (
   areaIds: string[],
   hass: HomeAssistant,
-  entities: string[]
+  entities: string[],
+  computeCard: ComputeEntityCard
 ): LovelaceCardConfig[] => {
   const cards: LovelaceCardConfig[] = [];
 
@@ -121,10 +138,8 @@ const processAreasForSecurity = (
     const areaSecurityEntities = entities.filter(areaFilter);
     const areaCards: LovelaceCardConfig[] = [];
 
-    const computeTileCard = computeAreaTileCardConfig(hass, false);
-
     for (const entityId of areaSecurityEntities) {
-      areaCards.push(computeTileCard(entityId));
+      areaCards.push(computeCard(entityId));
     }
 
     if (areaCards.length > 0) {
@@ -148,7 +163,8 @@ const processAreasForSecurity = (
 
 const processUnassignedEntities = (
   hass: HomeAssistant,
-  entities: string[]
+  entities: string[],
+  computeCard: ComputeEntityCard
 ): LovelaceCardConfig[] => {
   const unassignedFilter = generateEntityFilter(
     hass.states,
@@ -162,10 +178,9 @@ const processUnassignedEntities = (
   );
   const unassignedLights = entities.filter(unassignedFilter);
   const areaCards: LovelaceCardConfig[] = [];
-  const computeTileCard = computeAreaTileCardConfig(hass, false);
 
   for (const entityId of unassignedLights) {
-    areaCards.push(computeTileCard(entityId));
+    areaCards.push(computeCard(entityId));
   }
 
   return areaCards;
@@ -183,13 +198,59 @@ export class SecurityViewStrategy extends ReactiveElement {
 
     const sections: LovelaceSectionRawConfig[] = [];
 
-    const entities = findSecurityEntities(hass);
-
-    const favoriteEntities = (config.favorite_entities ?? []).filter(
-      (entityId) =>
-        hass.states[entityId] &&
-        isSecurityPanelEntity(hass, hass.states[entityId])
+    const editVisibility = Boolean(config.edit_visibility);
+    const entities = findSecurityEntities(
+      hass,
+      editVisibility ? undefined : config.hidden_entities
     );
+
+    const favoriteEntities = editVisibility
+      ? (config.favorite_entities ?? [])
+      : (config.favorite_entities ?? []).filter(
+          (entityId) =>
+            hass.states[entityId] &&
+            isSecurityPanelEntity(hass, hass.states[entityId])
+        );
+
+    const favoriteSet = new Set(config.favorite_entities);
+    const alertEntities = new Map(
+      (config.alert_entities ?? []).map((alertEntity) => [
+        alertEntity.entity,
+        alertEntity,
+      ])
+    );
+    const computeEditExtras = (
+      entityId: string
+    ): Pick<EntityVisibilityCardConfig, "favorite" | "alert"> => {
+      const alertEntity = alertEntities.get(entityId);
+      return {
+        favorite: favoriteSet.has(entityId),
+        alert: ALERT_DOMAINS.includes(computeDomain(entityId))
+          ? alertEntity
+            ? resolveSecurityAlertSeverity(alertEntity, hass.states[entityId])
+            : "none"
+          : undefined,
+      };
+    };
+    const wrapCard = (computeCard: ComputeEntityCard): ComputeEntityCard =>
+      editVisibility
+        ? wrapEntityVisibility(
+            new Set(config.hidden_entities),
+            computeCard,
+            computeEditExtras
+          )
+        : computeCard;
+    const computeFavoriteCard = editVisibility
+      ? (entityId: string, index: number): EntityVisibilityCardConfig => ({
+          type: "entity-visibility",
+          entity: entityId,
+          neighbor_entity:
+            favoriteEntities[index + 1] ?? favoriteEntities[index - 1],
+          ...computeEditExtras(entityId),
+          card: computeFavoriteCardConfig(entityId),
+        })
+      : computeFavoriteCardConfig;
+    const computeCard = wrapCard(computeAreaTileCardConfig(hass, false));
 
     if (favoriteEntities.length > 0) {
       sections.push({
@@ -203,7 +264,7 @@ export class SecurityViewStrategy extends ReactiveElement {
             ),
             heading_style: "title",
           },
-          ...favoriteEntities.map(computeFavoriteCardConfig),
+          ...favoriteEntities.map(computeFavoriteCard),
         ],
       });
     }
@@ -232,7 +293,12 @@ export class SecurityViewStrategy extends ReactiveElement {
         ],
       };
 
-      const areaCards = processAreasForSecurity(areaIds, hass, entities);
+      const areaCards = processAreasForSecurity(
+        areaIds,
+        hass,
+        entities,
+        computeCard
+      );
 
       if (areaCards.length > 0) {
         section.cards!.push(...areaCards);
@@ -259,7 +325,8 @@ export class SecurityViewStrategy extends ReactiveElement {
       const areaCards = processAreasForSecurity(
         hierarchy.areas,
         hass,
-        entities
+        entities,
+        computeCard
       );
 
       if (areaCards.length > 0) {
@@ -269,7 +336,11 @@ export class SecurityViewStrategy extends ReactiveElement {
     }
 
     // Process unassigned entities
-    const unassignedCards = processUnassignedEntities(hass, entities);
+    const unassignedCards = processUnassignedEntities(
+      hass,
+      entities,
+      computeCard
+    );
 
     if (unassignedCards.length > 0) {
       const section: LovelaceSectionRawConfig = {
@@ -303,18 +374,60 @@ export class SecurityViewStrategy extends ReactiveElement {
 
     const sidebarSections: LovelaceSectionConfig[] = [];
 
-    const alertCards = config.alert_entities
-      ?.filter((alertEntity) =>
-        ALERT_DOMAINS.includes(computeDomain(alertEntity.entity))
-      )
-      .map((alertEntity) =>
-        computeSecurityAlertCardConfig(
-          hass.states[alertEntity.entity],
-          alertEntity
-        )
-      );
+    const alertEntityConfigs = (config.alert_entities ?? []).filter(
+      (alertEntity) => ALERT_DOMAINS.includes(computeDomain(alertEntity.entity))
+    );
 
-    if (alertCards?.length) {
+    const alertCards = editVisibility
+      ? undefined
+      : alertEntityConfigs.map((alertEntity) =>
+          computeSecurityAlertCardConfig(
+            hass.states[alertEntity.entity],
+            alertEntity
+          )
+        );
+
+    if (editVisibility && alertEntityConfigs.length) {
+      sidebarSections.push({
+        type: "grid",
+        cards: [
+          {
+            type: "heading",
+            heading: hass.localize(
+              "ui.panel.lovelace.strategy.security.active_alerts"
+            ),
+            heading_style: "title",
+          },
+          ...alertEntityConfigs.map(
+            (alertEntity, index): EntityVisibilityCardConfig => {
+              const stateObj = hass.states[alertEntity.entity];
+              const severity = resolveSecurityAlertSeverity(
+                alertEntity,
+                stateObj
+              );
+              const color = computeSecurityAlertColor(severity);
+              return {
+                type: "entity-visibility",
+                entity: alertEntity.entity,
+                favorite: favoriteSet.has(alertEntity.entity),
+                alert: severity,
+                alert_select: true,
+                neighbor_entity: (
+                  alertEntityConfigs[index + 1] ?? alertEntityConfigs[index - 1]
+                )?.entity,
+                grid_options: { columns: 12 },
+                card: {
+                  type: "alert",
+                  entity: alertEntity.entity,
+                  alert_color: color,
+                  clear_color: color,
+                },
+              };
+            }
+          ),
+        ] satisfies LovelaceCardConfig[],
+      });
+    } else if (alertCards?.length) {
       sidebarSections.push({
         type: "grid",
         visibility: [
