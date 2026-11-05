@@ -188,7 +188,14 @@ module.exports.babelOptions = ({ latestBuild, isTestBuild, sw, worker }) => ({
           "@lit-labs/virtualizer/polyfills",
           "@webcomponents/scoped-custom-element-registry",
           "element-internals-polyfill",
-        ].map((p) => new RegExp(`[/\\\\]node_modules/${p}/`)),
+        ].map((p) =>
+          new RegExp(
+            // Every path separator must match / or \, or the exclude never
+            // matches on Windows (backslash paths) and polyfill-excluded
+            // packages get transformed as if they were not excluded.
+            `[/\\\\]node_modules[/\\\\]${p.split("/").join("[/\\\\]")}[/\\\\]`
+          )
+        ),
       ],
     },
     {
@@ -202,7 +209,14 @@ module.exports.babelOptions = ({ latestBuild, isTestBuild, sw, worker }) => ({
         "element-internals-polyfill",
         "@?lit(?:-labs|-element|-html)?",
         "@formatjs/(?:ecma402-abstract|intl-\\w+)",
-      ].map((p) => new RegExp(`[/\\\\]node_modules/${p}/`)),
+      ].map((p) =>
+        new RegExp(
+          // Every path separator must match / or \, or the exclude never
+          // matches on Windows (backslash paths) and polyfill-excluded
+          // packages get transformed as if they were not excluded.
+          `[/\\\\]node_modules[/\\\\]${p.split("/").join("[/\\\\]")}[/\\\\]`
+        )
+      ),
     },
   ].filter(Boolean),
 });
