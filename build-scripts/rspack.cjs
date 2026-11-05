@@ -305,7 +305,8 @@ const createRspackConfig = ({
           // Only use ignore to intercept imports that we don't control
           // inside node_module dependencies.
           if (
-            !context.includes("/node_modules/") ||
+            (!context.includes("/node_modules/") &&
+              !context.includes("\\node_modules\\")) ||
             // calling define.amd will call require("!!webpack amd options")
             resource.startsWith("!!webpack") ||
             // loaded by webpack dev server but doesn't exist.

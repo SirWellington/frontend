@@ -4,6 +4,7 @@ import {
   mdiArrowRight,
   mdiArrowUp,
   mdiBatteryHigh,
+  mdiEvStation,
   mdiFire,
   mdiHome,
   mdiLeaf,
@@ -321,7 +322,19 @@ class HuiEnergyDistrubutionCard
       ? Math.max(consumption.total.used_grid, 0)
       : 0;
 
-    const totalHomeConsumption = Math.max(0, consumption.total.used_total);
+    // When an EV statistic is configured, the EV charger is rendered as an
+    // independent node and its consumption is removed from the Home total.
+    const hasEv = Boolean(this._config.ev_statistic);
+    const evConsumption = hasEv
+      ? (calculateStatisticsSumGrowth(this._data.stats, [
+          this._config.ev_statistic!,
+        ]) ?? 0)
+      : 0;
+
+    const totalHomeConsumption = Math.max(
+      0,
+      consumption.total.used_total - evConsumption
+    );
 
     let lowCarbonEnergy: number | undefined;
     let highCarbonConsumption: number | undefined;
@@ -379,7 +392,8 @@ class HuiEnergyDistrubutionCard
       (solarToBattery || 0) +
       (batteryConsumption || 0) +
       (batteryFromGrid || 0) +
-      (batteryToGrid || 0);
+      (batteryToGrid || 0) +
+      (evConsumption || 0);
 
     // Coerce all energy numbers to the same unit (the biggest)
     const maxEnergy = Math.max(
@@ -388,6 +402,7 @@ class HuiEnergyDistrubutionCard
       returnedToGrid || 0,
       totalFromGrid || 0,
       totalHomeConsumption,
+      evConsumption,
       totalBatteryIn || 0,
       totalBatteryOut || 0
     );
@@ -682,6 +697,22 @@ class HuiEnergyDistrubutionCard
                     >`
               }
             </div>
+            ${
+              hasEv
+                ? html`<div class="circle-container ev">
+                    <div class="circle">
+                      <ha-svg-icon .path=${mdiEvStation}></ha-svg-icon>
+                      ${formatConsumptionShort(
+                        this.hass,
+                        evConsumption,
+                        "kWh",
+                        targetEnergyUnit
+                      )}
+                    </div>
+                    <span class="label">${this._config.ev_name || "EV"}</span>
+                  </div>`
+                : ""
+            }
           </div>
           ${
             hasBattery || (hasGas && hasWater)
@@ -800,9 +831,13 @@ class HuiEnergyDistrubutionCard
                   ? svg`<path
                     id="return"
                     class="return"
-                    d="M${hasBattery ? 45 : 47},0 v15 c0,${
-                      hasBattery ? "35 -10,30 -30,30" : "40 -10,35 -30,35"
-                    } h-20"
+                    d=${
+                      hasEv
+                        ? "M45,0 v15 c0,20 -25,17 -45,17"
+                        : `M${hasBattery ? 45 : 47},0 v15 c0,${
+                            hasBattery ? "35 -10,30 -30,30" : "40 -10,35 -30,35"
+                          } h-20`
+                    }
                     vector-effect="non-scaling-stroke"
                   ></path> `
                   : ""
@@ -812,9 +847,13 @@ class HuiEnergyDistrubutionCard
                   ? svg`<path
                     id="solar"
                     class="solar"
-                    d="M${hasBattery ? 55 : 53},0 v15 c0,${
-                      hasBattery ? "35 10,30 30,30" : "40 10,35 30,35"
-                    } h20"
+                    d=${
+                      hasEv
+                        ? "M50,0 V32"
+                        : `M${hasBattery ? 55 : 53},0 v15 c0,${
+                            hasBattery ? "35 10,30 30,30" : "40 10,35 30,35"
+                          } h20`
+                    }
                     vector-effect="non-scaling-stroke"
                   ></path>`
                   : ""
@@ -824,7 +863,7 @@ class HuiEnergyDistrubutionCard
                   ? svg`<path
                     id="battery-house"
                     class="battery-house"
-                    d="M55,100 v-15 c0,-35 10,-30 30,-30 h20"
+                    d=${hasEv ? "M50,100 V86" : "M55,100 v-15 c0,-35 10,-30 30,-30 h20"}
                     vector-effect="non-scaling-stroke"
                   ></path>
                   ${
@@ -835,7 +874,11 @@ class HuiEnergyDistrubutionCard
                             "battery-from-grid": hasFlow(batteryFromGrid),
                             "battery-to-grid": hasFlow(batteryToGrid),
                           })}
-                          d="M45,100 v-15 c0,-35 -10,-30 -30,-30 h-20"
+                          d=${
+                            hasEv
+                              ? "M45,100 v-15 c0,-30 -25,-35 -45,-35"
+                              : "M45,100 v-15 c0,-35 -10,-30 -30,-30 h-20"
+                          }
                           vector-effect="non-scaling-stroke"
                         ></path>`
                       : nothing
@@ -848,7 +891,9 @@ class HuiEnergyDistrubutionCard
                   ? svg`<path
                     id="battery-solar"
                     class="battery-solar"
-                    d="M50,0 V100"
+                    d=${
+                      hasEv ? "M55,0 v10 c0,15 26,5 26,20 V100" : "M50,0 V100"
+                    }
                     vector-effect="non-scaling-stroke"
                   ></path>`
                   : ""
@@ -858,10 +903,22 @@ class HuiEnergyDistrubutionCard
                   ? svg`<path
                     class="grid"
                     id="grid"
-                    d="M0,${hasBattery ? 50 : hasSolarProduction ? 56 : 53} H100"
+                    d="M0,${hasBattery ? 50 : hasSolarProduction ? 56 : 53} H${
+                      hasEv ? 38 : 100
+                    }"
                     vector-effect="non-scaling-stroke"
               ></path>`
                   : nothing
+              }
+              ${
+                hasEv
+                  ? svg`<path
+                    class="ev"
+                    id="ev"
+                    d="M62,${hasBattery ? 50 : hasSolarProduction ? 56 : 53} H100"
+                    vector-effect="non-scaling-stroke"
+                  ></path>`
+                  : ""
               }
               ${
                 hasFlow(solarToGrid) && this._animate
@@ -979,6 +1036,23 @@ class HuiEnergyDistrubutionCard
                       calcMode="linear"
                     >
                       <mpath xlink:href="#battery-grid" />
+                    </animateMotion>
+                  </circle>`
+                  : ""
+              }
+              ${
+                hasFlow(evConsumption) && this._animate
+                  ? svg`<circle
+                    r="1"
+                    class="ev"
+                    vector-effect="non-scaling-stroke"
+                  >
+                    <animateMotion
+                      dur="${6 - (evConsumption / totalLines) * 5}s"
+                      repeatCount="indefinite"
+                      calcMode="linear"
+                    >
+                      <mpath xlink:href="#ev" />
                     </animateMotion>
                   </circle>`
                   : ""
@@ -1228,6 +1302,20 @@ class HuiEnergyDistrubutionCard
     }
     .return {
       color: var(--energy-grid-return-color);
+    }
+    .ev .circle {
+      border-color: var(--energy-ev-color, #00bcd4);
+    }
+    .ev ha-svg-icon {
+      color: var(--energy-ev-color, #00bcd4);
+    }
+    path.ev,
+    circle.ev {
+      stroke: var(--energy-ev-color, #00bcd4);
+    }
+    circle.ev {
+      stroke-width: 4;
+      fill: var(--energy-ev-color, #00bcd4);
     }
     .grid .circle {
       border-color: var(--energy-grid-consumption-color);

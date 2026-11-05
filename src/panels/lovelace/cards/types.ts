@@ -195,6 +195,14 @@ export interface EnergyDateSelectorCardConfig extends EnergyCardBaseConfig {
 export interface EnergyDistributionCardConfig extends EnergyCardConfig {
   type: "energy-distribution";
   link_dashboard?: boolean;
+  /**
+   * Optional statistic id of an EV charger (e.g. a Tesla Wall Connector).
+   * Its consumption is rendered as an independent node next to Home and
+   * subtracted from the Home total.
+   */
+  ev_statistic?: string;
+  /** Optional display name for the EV node. Defaults to "EV". */
+  ev_name?: string;
 }
 export interface EnergyUsageGraphCardConfig extends EnergyCardConfig {
   type: "energy-usage-graph";
