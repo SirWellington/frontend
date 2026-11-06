@@ -549,7 +549,7 @@ class HuiEnergyDistrubutionCard
                 </div>`
               : ""
           }
-          <div class="row">
+          <div class="row row-middle">
             ${
               hasGrid
                 ? html`<div class="circle-container grid">
@@ -651,7 +651,7 @@ class HuiEnergyDistrubutionCard
                 : html`<div class="grid-spacer"></div>`
             }
           </div>
-          <div class="row">
+          <div class="row row-bottom">
             ${
               hasEv
                 ? html`<div class="circle-container ev">
@@ -668,7 +668,7 @@ class HuiEnergyDistrubutionCard
                   </div>`
                 : html`<div class="grid-spacer"></div>`
             }
-            <div class="spacer"></div>
+            <div class="narrow-spacer"></div>
             <div class="circle-container home">
               <div
                 class="circle ${classMap({
@@ -779,7 +779,7 @@ class HuiEnergyDistrubutionCard
                   ? svg`<path
                     id="return"
                     class="return"
-                    d="M214,81 L76,159"
+                    d="M216,85 L174,115"
                     vector-effect="non-scaling-stroke"
                   ></path> `
                   : ""
@@ -789,7 +789,7 @@ class HuiEnergyDistrubutionCard
                   ? svg`<path
                     id="solar"
                     class="solar"
-                    d="M279,90 L431,250"
+                    d="M263,100 L305,230"
                     vector-effect="non-scaling-stroke"
                   ></path>`
                   : ""
@@ -799,7 +799,7 @@ class HuiEnergyDistrubutionCard
                   ? svg`<path
                     id="battery-house"
                     class="battery-house"
-                    d="M460,222 V238"
+                    d="M347,180 L331,230"
                     vector-effect="non-scaling-stroke"
                   ></path>
                   ${
@@ -810,7 +810,7 @@ class HuiEnergyDistrubutionCard
                             "battery-from-grid": hasFlow(batteryFromGrid),
                             "battery-to-grid": hasFlow(batteryToGrid),
                           })}
-                          d="M82,180 H418"
+                          d="M182,140 H318"
                           vector-effect="non-scaling-stroke"
                         ></path>`
                       : nothing
@@ -823,7 +823,7 @@ class HuiEnergyDistrubutionCard
                   ? svg`<path
                     id="battery-solar"
                     class="battery-solar"
-                    d="M286,81 L424,159"
+                    d="M284,85 L326,115"
                     vector-effect="non-scaling-stroke"
                   ></path>`
                   : ""
@@ -833,7 +833,7 @@ class HuiEnergyDistrubutionCard
                   ? svg`<path
                     class="grid"
                     id="grid"
-                    d="M81,190 L419,270"
+                    d="M174,165 L284,245"
                     vector-effect="non-scaling-stroke"
               ></path>`
                   : nothing
@@ -843,7 +843,7 @@ class HuiEnergyDistrubutionCard
                   ? svg`<path
                     class="ev"
                     id="ev"
-                    d="M418,280 H82"
+                    d="M276,270 H224"
                     vector-effect="non-scaling-stroke"
                   ></path>`
                   : ""
@@ -1041,6 +1041,16 @@ class HuiEnergyDistrubutionCard
       max-width: 500px;
       margin: 0 auto;
     }
+    /* Pentagon geometry: node centers at Solar (250,60), Grid (140,140),
+       Battery (360,140), EV (182,270), Home (318,270) in a 500x330 space.
+       Every edge is ~136px, so the five nodes form an equilateral pentagon. */
+    .row-middle {
+      width: 300px;
+      height: 130px;
+    }
+    .row-bottom {
+      width: 216px;
+    }
     .circle-container {
       display: flex;
       flex-direction: column;
@@ -1051,7 +1061,6 @@ class HuiEnergyDistrubutionCard
     }
     .circle-container.solar {
       margin: 0 4px;
-      height: 130px;
     }
     .circle-container.gas {
       margin-left: 4px;
@@ -1076,6 +1085,9 @@ class HuiEnergyDistrubutionCard
     }
     .spacer {
       width: 84px;
+    }
+    .narrow-spacer {
+      width: 56px;
     }
     .grid-spacer {
       width: 84px;
