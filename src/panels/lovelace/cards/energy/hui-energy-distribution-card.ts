@@ -595,6 +595,80 @@ class HuiEnergyDistrubutionCard
                   </div> `
                 : html`<div class="grid-spacer"></div>`
             }
+            <div class="spacer"></div>
+            ${
+              hasBattery
+                ? html` <div class="circle-container battery">
+                    <div class="circle">
+                      <div class="battery-soc">
+                        <ha-svg-icon .path=${batteryIconPath}></ha-svg-icon>
+                        ${
+                          averageBatterySoc !== null
+                            ? html`<span
+                                >${formatNumber(
+                                  averageBatterySoc,
+                                  this.hass.locale,
+                                  {
+                                    maximumFractionDigits: 0,
+                                  }
+                                )}
+                                %</span
+                              >`
+                            : nothing
+                        }
+                      </div>
+                      <span class="battery-in">
+                        <ha-svg-icon
+                          class="small"
+                          .path=${mdiArrowDown}
+                        ></ha-svg-icon
+                        >${formatConsumptionShort(
+                          this.hass,
+                          totalBatteryIn,
+                          "kWh",
+                          targetEnergyUnit
+                        )}
+                      </span>
+                      <span class="battery-out">
+                        <ha-svg-icon
+                          class="small"
+                          .path=${mdiArrowUp}
+                        ></ha-svg-icon
+                        >${formatConsumptionShort(
+                          this.hass,
+                          totalBatteryOut,
+                          "kWh",
+                          targetEnergyUnit
+                        )}
+                      </span>
+                    </div>
+                    <span class="label"
+                      >${this.hass.localize(
+                        "ui.panel.lovelace.cards.energy.energy_distribution.battery"
+                      )}</span
+                    >
+                  </div>`
+                : html`<div class="grid-spacer"></div>`
+            }
+          </div>
+          <div class="row">
+            ${
+              hasEv
+                ? html`<div class="circle-container ev">
+                    <div class="circle">
+                      <ha-svg-icon .path=${mdiEvStation}></ha-svg-icon>
+                      ${formatConsumptionShort(
+                        this.hass,
+                        evConsumption,
+                        "kWh",
+                        targetEnergyUnit
+                      )}
+                    </div>
+                    <span class="label">${this._config.ev_name || "EV"}</span>
+                  </div>`
+                : html`<div class="grid-spacer"></div>`
+            }
+            <div class="spacer"></div>
             <div class="circle-container home">
               <div
                 class="circle ${classMap({
@@ -697,147 +771,15 @@ class HuiEnergyDistrubutionCard
                     >`
               }
             </div>
-            ${
-              hasEv
-                ? html`<div class="circle-container ev">
-                    <div class="circle">
-                      <ha-svg-icon .path=${mdiEvStation}></ha-svg-icon>
-                      ${formatConsumptionShort(
-                        this.hass,
-                        evConsumption,
-                        "kWh",
-                        targetEnergyUnit
-                      )}
-                    </div>
-                    <span class="label">${this._config.ev_name || "EV"}</span>
-                  </div>`
-                : ""
-            }
           </div>
-          ${
-            hasBattery || (hasGas && hasWater)
-              ? html`<div class="row">
-                  <div class="spacer"></div>
-                  ${
-                    hasBattery
-                      ? html` <div class="circle-container battery">
-                          <div class="circle">
-                            <div class="battery-soc">
-                              <ha-svg-icon
-                                .path=${batteryIconPath}
-                              ></ha-svg-icon>
-                              ${
-                                averageBatterySoc !== null
-                                  ? html`<span
-                                      >${formatNumber(
-                                        averageBatterySoc,
-                                        this.hass.locale,
-                                        {
-                                          maximumFractionDigits: 0,
-                                        }
-                                      )}
-                                      %</span
-                                    >`
-                                  : nothing
-                              }
-                            </div>
-                            <span class="battery-in">
-                              <ha-svg-icon
-                                class="small"
-                                .path=${mdiArrowDown}
-                              ></ha-svg-icon
-                              >${formatConsumptionShort(
-                                this.hass,
-                                totalBatteryIn,
-                                "kWh",
-                                targetEnergyUnit
-                              )}
-                            </span>
-                            <span class="battery-out">
-                              <ha-svg-icon
-                                class="small"
-                                .path=${mdiArrowUp}
-                              ></ha-svg-icon
-                              >${formatConsumptionShort(
-                                this.hass,
-                                totalBatteryOut,
-                                "kWh",
-                                targetEnergyUnit
-                              )}
-                            </span>
-                          </div>
-                          <span class="label"
-                            >${this.hass.localize(
-                              "ui.panel.lovelace.cards.energy.energy_distribution.battery"
-                            )}</span
-                          >
-                        </div>`
-                      : html`<div class="spacer"></div>`
-                  }
-                  ${
-                    hasGas && hasWater
-                      ? html`<div class="circle-container water bottom">
-                          <svg width="80" height="30">
-                            <path d="M40 30 v-30" id="water" />
-                            ${
-                              waterUsage && this._animate
-                                ? svg`<circle
-                    r="1"
-                    class="water"
-                    vector-effect="non-scaling-stroke"
-                  >
-                    <animateMotion
-                      dur="2s"
-                      repeatCount="indefinite"
-                      calcMode="linear"
-                    >
-                      <mpath xlink:href="#water" />
-                    </animateMotion>
-                  </circle>`
-                                : ""
-                            }
-                          </svg>
-                          <div class="circle">
-                            <ha-svg-icon .path=${mdiWater}></ha-svg-icon>
-                            ${formatConsumptionShort(
-                              this.hass,
-                              waterUsage,
-                              this._data.waterUnit
-                            )}
-                          </div>
-                          <span class="label"
-                            >${this.hass.localize(
-                              "ui.panel.lovelace.cards.energy.energy_distribution.water"
-                            )}</span
-                          >
-                        </div>`
-                      : html`<div class="spacer"></div>`
-                  }
-                </div>`
-              : ""
-          }
-          <div
-            class="lines ${classMap({
-              high: hasBattery || (hasGas && hasWater),
-            })}"
-          >
-            <svg
-              viewBox="0 0 100 100"
-              xmlns="http://www.w3.org/2000/svg"
-              preserveAspectRatio="xMidYMid slice"
-            >
+          <div class="lines">
+            <svg viewBox="0 0 500 330" xmlns="http://www.w3.org/2000/svg">
               ${
                 hasReturnToGrid && hasSolarProduction
                   ? svg`<path
                     id="return"
                     class="return"
-                    d=${
-                      hasEv
-                        ? "M45,0 v15 c0,20 -25,17 -45,17"
-                        : `M${hasBattery ? 45 : 47},0 v15 c0,${
-                            hasBattery ? "35 -10,30 -30,30" : "40 -10,35 -30,35"
-                          } h-20`
-                    }
+                    d="M214,81 L76,159"
                     vector-effect="non-scaling-stroke"
                   ></path> `
                   : ""
@@ -847,13 +789,7 @@ class HuiEnergyDistrubutionCard
                   ? svg`<path
                     id="solar"
                     class="solar"
-                    d=${
-                      hasEv
-                        ? "M50,0 V32"
-                        : `M${hasBattery ? 55 : 53},0 v15 c0,${
-                            hasBattery ? "35 10,30 30,30" : "40 10,35 30,35"
-                          } h20`
-                    }
+                    d="M279,90 L431,250"
                     vector-effect="non-scaling-stroke"
                   ></path>`
                   : ""
@@ -863,7 +799,7 @@ class HuiEnergyDistrubutionCard
                   ? svg`<path
                     id="battery-house"
                     class="battery-house"
-                    d=${hasEv ? "M50,100 V86" : "M55,100 v-15 c0,-35 10,-30 30,-30 h20"}
+                    d="M460,222 V238"
                     vector-effect="non-scaling-stroke"
                   ></path>
                   ${
@@ -874,11 +810,7 @@ class HuiEnergyDistrubutionCard
                             "battery-from-grid": hasFlow(batteryFromGrid),
                             "battery-to-grid": hasFlow(batteryToGrid),
                           })}
-                          d=${
-                            hasEv
-                              ? "M45,100 v-15 c0,-30 -25,-35 -45,-35"
-                              : "M45,100 v-15 c0,-35 -10,-30 -30,-30 h-20"
-                          }
+                          d="M82,180 H418"
                           vector-effect="non-scaling-stroke"
                         ></path>`
                       : nothing
@@ -891,9 +823,7 @@ class HuiEnergyDistrubutionCard
                   ? svg`<path
                     id="battery-solar"
                     class="battery-solar"
-                    d=${
-                      hasEv ? "M55,0 v10 c0,15 26,5 26,20 V100" : "M50,0 V100"
-                    }
+                    d="M286,81 L424,159"
                     vector-effect="non-scaling-stroke"
                   ></path>`
                   : ""
@@ -903,9 +833,7 @@ class HuiEnergyDistrubutionCard
                   ? svg`<path
                     class="grid"
                     id="grid"
-                    d="M0,${hasBattery ? 50 : hasSolarProduction ? 56 : 53} H${
-                      hasEv ? 38 : 100
-                    }"
+                    d="M81,190 L419,270"
                     vector-effect="non-scaling-stroke"
               ></path>`
                   : nothing
@@ -915,7 +843,7 @@ class HuiEnergyDistrubutionCard
                   ? svg`<path
                     class="ev"
                     id="ev"
-                    d="M62,${hasBattery ? 50 : hasSolarProduction ? 56 : 53} H100"
+                    d="M418,280 H82"
                     vector-effect="non-scaling-stroke"
                   ></path>`
                   : ""
@@ -1094,23 +1022,18 @@ class HuiEnergyDistrubutionCard
     }
     .lines {
       position: absolute;
-      bottom: 0;
+      top: 0;
       left: 0;
       width: 100%;
-      height: 146px;
+      height: 100%;
       display: flex;
       justify-content: center;
-      padding: 0 16px 16px;
-      box-sizing: border-box;
-    }
-    .lines.high {
-      bottom: 100px;
-      height: 156px;
+      pointer-events: none;
     }
     .lines svg {
-      width: calc(100% - 160px);
-      height: 100%;
-      max-width: 340px;
+      width: 100%;
+      height: 330px;
+      max-width: 500px;
     }
     .row {
       display: flex;
@@ -1138,14 +1061,11 @@ class HuiEnergyDistrubutionCard
       margin-left: 4px;
       height: 130px;
     }
-    .circle-container.water.bottom {
-      position: relative;
-      top: -20px;
-      margin-bottom: -20px;
-    }
-    .circle-container.battery {
-      height: 110px;
-      justify-content: flex-end;
+    .circle-container.grid,
+    .circle-container.battery,
+    .circle-container.ev,
+    .circle-container.home {
+      height: 100px;
     }
     .battery-soc {
       display: inline-flex;
