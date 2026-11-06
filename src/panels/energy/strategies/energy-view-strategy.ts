@@ -69,11 +69,20 @@ export class EnergyViewStrategy extends ReactiveElement {
     if (
       isEnergyCardVisible("electricity", "energy-distribution", prefs, hidden)
     ) {
-      const distributionCard = {
+      const distributionCard: LovelaceCardConfig = {
         title: hass.localize("ui.panel.energy.cards.energy_distribution_title"),
         type: "energy-distribution",
         collection_key: collectionKey,
       };
+      // Fork extension: pass through the EV charger statistic so the
+      // generated card renders the EV as an independent node, matching
+      // hand-written energy-distribution cards that set ev_statistic.
+      if (_config.ev_statistic) {
+        distributionCard.ev_statistic = _config.ev_statistic;
+      }
+      if (_config.ev_name) {
+        distributionCard.ev_name = _config.ev_name;
+      }
       sidebarSection.cards!.push(distributionCard);
       view.sections!.push({
         type: "grid",

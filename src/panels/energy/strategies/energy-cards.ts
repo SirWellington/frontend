@@ -9,6 +9,11 @@ import type { LovelaceStrategyConfig } from "../../../data/lovelace/config/strat
 export interface EnergyViewStrategyConfig extends LovelaceStrategyConfig {
   collection_key?: string;
   hidden_cards?: string[];
+  /** Fork extension: statistic id of an EV charger rendered as an
+      independent node on the generated energy-distribution card. */
+  ev_statistic?: string;
+  /** Fork extension: label for the EV node (defaults to "EV"). */
+  ev_name?: string;
 }
 
 export type EnergyViewPath =
