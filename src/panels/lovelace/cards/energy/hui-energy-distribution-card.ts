@@ -395,6 +395,52 @@ class HuiEnergyDistrubutionCard
       (batteryToGrid || 0) +
       (evConsumption || 0);
 
+    // HA's consumption attribution only covers the home statistic, so the
+    // EV's share of each source is estimated per 5-minute bucket: supply
+    // (solar, then battery, then grid) is allocated to the combined
+    // home + EV demand in that priority order, and each source is split
+    // between home and EV in proportion to their demand. Surplus supply
+    // (grid export, battery charging) is left unattributed.
+    let evFromSolar = 0;
+    let evFromBattery = 0;
+    let evFromGrid = 0;
+    if (hasEv) {
+      const evByTime: Record<number, number> = {};
+      this._data.stats[this._config.ev_statistic!]?.forEach((row) => {
+        if (row.change != null) {
+          evByTime[row.start] = (evByTime[row.start] ?? 0) + row.change;
+        }
+      });
+      const times = new Set<number>([
+        ...Object.keys(summedData.solar ?? {}).map(Number),
+        ...Object.keys(summedData.from_grid ?? {}).map(Number),
+        ...Object.keys(summedData.from_battery ?? {}).map(Number),
+        ...Object.keys(consumption.used_total).map(Number),
+        ...Object.keys(evByTime).map(Number),
+      ]);
+      times.forEach((t) => {
+        const home = Math.max(consumption.used_total[t] ?? 0, 0);
+        const ev = Math.max(evByTime[t] ?? 0, 0);
+        const demand = home + ev;
+        if (demand <= 0) {
+          return;
+        }
+        const usedSolar = Math.min(
+          Math.max(summedData.solar?.[t] ?? 0, 0),
+          demand
+        );
+        const usedBattery = Math.min(
+          Math.max(summedData.from_battery?.[t] ?? 0, 0),
+          demand - usedSolar
+        );
+        const usedGrid = Math.max(0, demand - usedSolar - usedBattery);
+        const share = ev / demand;
+        evFromSolar += usedSolar * share;
+        evFromBattery += usedBattery * share;
+        evFromGrid += usedGrid * share;
+      });
+    }
+
     // Coerce all energy numbers to the same unit (the biggest)
     const maxEnergy = Math.max(
       lowCarbonEnergy || 0,
@@ -663,6 +709,46 @@ class HuiEnergyDistrubutionCard
                         "kWh",
                         targetEnergyUnit
                       )}
+                      ${
+                        evFromSolar + evFromBattery + evFromGrid > 0.0005
+                          ? html`<div class="ev-source ev-solar">
+                                <ha-svg-icon
+                                  class="small"
+                                  .path=${mdiSolarPower}
+                                ></ha-svg-icon
+                                >${formatConsumptionShort(
+                                  this.hass,
+                                  evFromSolar,
+                                  "kWh",
+                                  targetEnergyUnit
+                                )}
+                              </div>
+                              <div class="ev-source ev-battery">
+                                <ha-svg-icon
+                                  class="small"
+                                  .path=${mdiBatteryHigh}
+                                ></ha-svg-icon
+                                >${formatConsumptionShort(
+                                  this.hass,
+                                  evFromBattery,
+                                  "kWh",
+                                  targetEnergyUnit
+                                )}
+                              </div>
+                              <div class="ev-source ev-grid">
+                                <ha-svg-icon
+                                  class="small"
+                                  .path=${mdiTransmissionTower}
+                                ></ha-svg-icon
+                                >${formatConsumptionShort(
+                                  this.hass,
+                                  evFromGrid,
+                                  "kWh",
+                                  targetEnergyUnit
+                                )}
+                              </div>`
+                          : ""
+                      }
                     </div>
                     <span class="label">${this._config.ev_name || "EV"}</span>
                   </div>`
@@ -841,11 +927,23 @@ class HuiEnergyDistrubutionCard
               ${
                 hasEv
                   ? svg`<path
-                    class="ev"
-                    id="ev"
-                    d="M276,270 H224"
-                    vector-effect="non-scaling-stroke"
-                  ></path>`
+                      class="ev ev-solar"
+                      id="ev-solar"
+                      d="M237,100 L195,230"
+                      vector-effect="non-scaling-stroke"
+                    ></path>
+                    <path
+                      class="ev ev-battery"
+                      id="ev-battery"
+                      d="M326,165 L216,245"
+                      vector-effect="non-scaling-stroke"
+                    ></path>
+                    <path
+                      class="ev ev-grid"
+                      id="ev-grid"
+                      d="M153,180 L169,230"
+                      vector-effect="non-scaling-stroke"
+                    ></path>`
                   : ""
               }
               ${
@@ -969,20 +1067,54 @@ class HuiEnergyDistrubutionCard
                   : ""
               }
               ${
-                hasFlow(evConsumption) && this._animate
+                hasFlow(evFromSolar) && this._animate
                   ? svg`<circle
-                    r="1"
-                    class="ev"
-                    vector-effect="non-scaling-stroke"
-                  >
-                    <animateMotion
-                      dur="${6 - (evConsumption / totalLines) * 5}s"
-                      repeatCount="indefinite"
-                      calcMode="linear"
+                      r="1"
+                      class="ev-solar"
+                      vector-effect="non-scaling-stroke"
                     >
-                      <mpath xlink:href="#ev" />
-                    </animateMotion>
-                  </circle>`
+                      <animateMotion
+                        dur="${6 - (evFromSolar / totalLines) * 5}s"
+                        repeatCount="indefinite"
+                        calcMode="linear"
+                      >
+                        <mpath xlink:href="#ev-solar" />
+                      </animateMotion>
+                    </circle>`
+                  : ""
+              }
+              ${
+                hasFlow(evFromBattery) && this._animate
+                  ? svg`<circle
+                      r="1"
+                      class="ev-battery"
+                      vector-effect="non-scaling-stroke"
+                    >
+                      <animateMotion
+                        dur="${6 - (evFromBattery / totalLines) * 5}s"
+                        repeatCount="indefinite"
+                        calcMode="linear"
+                      >
+                        <mpath xlink:href="#ev-battery" />
+                      </animateMotion>
+                    </circle>`
+                  : ""
+              }
+              ${
+                hasFlow(evFromGrid) && this._animate
+                  ? svg`<circle
+                      r="1"
+                      class="ev-grid"
+                      vector-effect="non-scaling-stroke"
+                    >
+                      <animateMotion
+                        dur="${6 - (evFromGrid / totalLines) * 5}s"
+                        repeatCount="indefinite"
+                        calcMode="linear"
+                      >
+                        <mpath xlink:href="#ev-grid" />
+                      </animateMotion>
+                    </circle>`
                   : ""
               }
             </svg>
@@ -1241,13 +1373,49 @@ class HuiEnergyDistrubutionCard
     .ev ha-svg-icon {
       color: var(--energy-ev-color, #00bcd4);
     }
-    path.ev,
-    circle.ev {
-      stroke: var(--energy-ev-color, #00bcd4);
+    /* The EV's inflow is drawn per source so the lines and dots match the
+       source breakdown shown inside the EV circle. */
+    path.ev.ev-solar,
+    circle.ev-solar {
+      stroke: var(--energy-solar-color);
     }
-    circle.ev {
+    path.ev.ev-battery,
+    circle.ev-battery {
+      stroke: var(--energy-battery-out-color);
+    }
+    path.ev.ev-grid,
+    circle.ev-grid {
+      stroke: var(--energy-grid-consumption-color);
+    }
+    circle.ev-solar,
+    circle.ev-battery,
+    circle.ev-grid {
       stroke-width: 4;
-      fill: var(--energy-ev-color, #00bcd4);
+    }
+    circle.ev-solar {
+      fill: var(--energy-solar-color);
+    }
+    circle.ev-battery {
+      fill: var(--energy-battery-out-color);
+    }
+    circle.ev-grid {
+      fill: var(--energy-grid-consumption-color);
+    }
+    .ev-source {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      font-size: 11px;
+      line-height: 1.2;
+    }
+    .ev-source.ev-solar {
+      color: var(--energy-solar-color);
+    }
+    .ev-source.ev-battery {
+      color: var(--energy-battery-out-color);
+    }
+    .ev-source.ev-grid {
+      color: var(--energy-grid-consumption-color);
     }
     .grid .circle {
       border-color: var(--energy-grid-consumption-color);
