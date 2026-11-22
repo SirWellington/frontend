@@ -4,6 +4,7 @@ import {
   mdiArrowRight,
   mdiArrowUp,
   mdiBatteryHigh,
+  mdiEvStation,
   mdiFire,
   mdiHome,
   mdiLeaf,
@@ -364,7 +365,19 @@ class HuiEnergyDistrubutionCard extends LitElement implements LovelaceCard {
       0
     );
 
-    const totalHomeConsumption = Math.max(0, consumption.total.used_total);
+    // When an EV statistic is configured, the EV charger is rendered as an
+    // independent node and its consumption is removed from the Home total.
+    const hasEv = Boolean(this._config.ev_statistic);
+    const evConsumption = hasEv
+      ? (calculateStatisticsSumGrowth(this._data.stats, [
+          this._config.ev_statistic!,
+        ]) ?? 0)
+      : 0;
+
+    const totalHomeConsumption = Math.max(
+      0,
+      consumption.total.used_total - evConsumption
+    );
 
     let lowCarbonEnergy: number | undefined;
     let highCarbonConsumption: number | undefined;
@@ -423,7 +436,54 @@ class HuiEnergyDistrubutionCard extends LitElement implements LovelaceCard {
       (solarToBattery || 0) +
       (batteryConsumption || 0) +
       (batteryFromGrid || 0) +
-      (batteryToGrid || 0);
+      (batteryToGrid || 0) +
+      (evConsumption || 0);
+
+    // HA's consumption attribution only covers the home statistic, so the
+    // EV's share of each source is estimated per 5-minute bucket: supply
+    // (solar, then battery, then grid) is allocated to the combined
+    // home + EV demand in that priority order, and each source is split
+    // between home and EV in proportion to their demand. Surplus supply
+    // (grid export, battery charging) is left unattributed.
+    let evFromSolar = 0;
+    let evFromBattery = 0;
+    let evFromGrid = 0;
+    if (hasEv) {
+      const evByTime: Record<number, number> = {};
+      this._data.stats[this._config.ev_statistic!]?.forEach((row) => {
+        if (row.change != null) {
+          evByTime[row.start] = (evByTime[row.start] ?? 0) + row.change;
+        }
+      });
+      const times = new Set<number>([
+        ...Object.keys(summedData.solar ?? {}).map(Number),
+        ...Object.keys(summedData.from_grid ?? {}).map(Number),
+        ...Object.keys(summedData.from_battery ?? {}).map(Number),
+        ...Object.keys(consumption.used_total).map(Number),
+        ...Object.keys(evByTime).map(Number),
+      ]);
+      times.forEach((t) => {
+        const home = Math.max(consumption.used_total[t] ?? 0, 0);
+        const ev = Math.max(evByTime[t] ?? 0, 0);
+        const demand = home + ev;
+        if (demand <= 0) {
+          return;
+        }
+        const usedSolar = Math.min(
+          Math.max(summedData.solar?.[t] ?? 0, 0),
+          demand
+        );
+        const usedBattery = Math.min(
+          Math.max(summedData.from_battery?.[t] ?? 0, 0),
+          demand - usedSolar
+        );
+        const usedGrid = Math.max(0, demand - usedSolar - usedBattery);
+        const share = ev / demand;
+        evFromSolar += usedSolar * share;
+        evFromBattery += usedBattery * share;
+        evFromGrid += usedGrid * share;
+      });
+    }
 
     // Coerce all energy numbers to the same unit (the biggest)
     const maxEnergy = Math.max(
@@ -432,6 +492,7 @@ class HuiEnergyDistrubutionCard extends LitElement implements LovelaceCard {
       returnedToGrid || 0,
       totalFromGrid || 0,
       totalHomeConsumption,
+      evConsumption,
       totalBatteryIn || 0,
       totalBatteryOut || 0
     );
@@ -568,7 +629,7 @@ class HuiEnergyDistrubutionCard extends LitElement implements LovelaceCard {
                 </div>`
               : ""
           }
-          <div class="row">
+          <div class="row row-middle">
             ${
               hasGrid
                 ? html`<div class="circle-container grid">
@@ -614,6 +675,111 @@ class HuiEnergyDistrubutionCard extends LitElement implements LovelaceCard {
                   </div> `
                 : html`<div class="grid-spacer"></div>`
             }
+            <div class="spacer"></div>
+            ${
+              hasBattery
+                ? html` <div class="circle-container battery">
+                    <div class="circle">
+                      <div class="battery-soc">
+                        <ha-svg-icon .path=${batteryIconPath}></ha-svg-icon>
+                        ${
+                          formattedBatterySoc
+                            ? html`<span>${formattedBatterySoc}</span>`
+                            : nothing
+                        }
+                      </div>
+                      <span class="battery-in">
+                        <ha-svg-icon
+                          class="small"
+                          .path=${mdiArrowDown}
+                        ></ha-svg-icon
+                        >${formatConsumptionShort(
+                          this._i18n.locale,
+                          totalBatteryIn,
+                          "kWh",
+                          targetEnergyUnit
+                        )}
+                      </span>
+                      <span class="battery-out">
+                        <ha-svg-icon
+                          class="small"
+                          .path=${mdiArrowUp}
+                        ></ha-svg-icon
+                        >${formatConsumptionShort(
+                          this._i18n.locale,
+                          totalBatteryOut,
+                          "kWh",
+                          targetEnergyUnit
+                        )}
+                      </span>
+                    </div>
+                    <span class="label"
+                      >${this._i18n.localize(
+                        "ui.panel.lovelace.cards.energy.energy_distribution.battery"
+                      )}</span
+                    >
+                  </div>`
+                : html`<div class="grid-spacer"></div>`
+            }
+          </div>
+          <div class="row row-bottom">
+            ${
+              hasEv
+                ? html`<div class="circle-container ev">
+                    <div class="circle">
+                      <ha-svg-icon .path=${mdiEvStation}></ha-svg-icon>
+                      ${formatConsumptionShort(
+                        this._i18n.locale,
+                        evConsumption,
+                        "kWh",
+                        targetEnergyUnit
+                      )}
+                      ${
+                        evFromSolar + evFromBattery + evFromGrid > 0.0005
+                          ? html`<div class="ev-source ev-solar">
+                                <ha-svg-icon
+                                  class="small"
+                                  .path=${mdiSolarPower}
+                                ></ha-svg-icon
+                                >${formatConsumptionShort(
+                                  this._i18n.locale,
+                                  evFromSolar,
+                                  "kWh",
+                                  targetEnergyUnit
+                                )}
+                              </div>
+                              <div class="ev-source ev-battery">
+                                <ha-svg-icon
+                                  class="small"
+                                  .path=${mdiBatteryHigh}
+                                ></ha-svg-icon
+                                >${formatConsumptionShort(
+                                  this._i18n.locale,
+                                  evFromBattery,
+                                  "kWh",
+                                  targetEnergyUnit
+                                )}
+                              </div>
+                              <div class="ev-source ev-grid">
+                                <ha-svg-icon
+                                  class="small"
+                                  .path=${mdiTransmissionTower}
+                                ></ha-svg-icon
+                                >${formatConsumptionShort(
+                                  this._i18n.locale,
+                                  evFromGrid,
+                                  "kWh",
+                                  targetEnergyUnit
+                                )}
+                              </div>`
+                          : ""
+                      }
+                    </div>
+                    <span class="label">${this._config.ev_name || "EV"}</span>
+                  </div>`
+                : html`<div class="grid-spacer"></div>`
+            }
+            <div class="narrow-spacer"></div>
             <div class="circle-container home">
               <div
                 class="circle ${classMap({
@@ -715,111 +881,15 @@ class HuiEnergyDistrubutionCard extends LitElement implements LovelaceCard {
               }
             </div>
           </div>
-          ${
-            hasBattery || (hasGas && hasWater)
-              ? html`<div class="row">
-                  <div class="spacer"></div>
-                  ${
-                    hasBattery
-                      ? html` <div class="circle-container battery">
-                          <div class="circle">
-                            <div class="battery-soc">
-                              <ha-svg-icon
-                                .path=${batteryIconPath}
-                              ></ha-svg-icon>
-                              ${
-                                formattedBatterySoc
-                                  ? html`<span>${formattedBatterySoc}</span>`
-                                  : nothing
-                              }
-                            </div>
-                            <span class="battery-in">
-                              <ha-svg-icon
-                                class="small"
-                                .path=${mdiArrowDown}
-                              ></ha-svg-icon
-                              >${formatConsumptionShort(
-                                this._i18n.locale,
-                                totalBatteryIn,
-                                "kWh",
-                                targetEnergyUnit
-                              )}
-                            </span>
-                            <span class="battery-out">
-                              <ha-svg-icon
-                                class="small"
-                                .path=${mdiArrowUp}
-                              ></ha-svg-icon
-                              >${formatConsumptionShort(
-                                this._i18n.locale,
-                                totalBatteryOut,
-                                "kWh",
-                                targetEnergyUnit
-                              )}
-                            </span>
-                          </div>
-                          <span class="label"
-                            >${this._i18n.localize(
-                              "ui.panel.lovelace.cards.energy.energy_distribution.battery"
-                            )}</span
-                          >
-                        </div>`
-                      : html`<div class="spacer"></div>`
-                  }
-                  ${
-                    hasGas && hasWater
-                      ? html`<div class="circle-container water bottom">
-                          <div class="flow">
-                            <svg width="80" height="30">
-                              <path d="M40 30 v-30" id="water" />
-                            </svg>
-                            ${renderEnergyFlowDots([
-                              !this._reducedMotion &&
-                                waterUsage && {
-                                  path: "water",
-                                  className: "water",
-                                  duration: 2,
-                                },
-                            ])}
-                          </div>
-                          <div class="circle">
-                            <ha-svg-icon .path=${mdiWater}></ha-svg-icon>
-                            ${formatConsumptionShort(
-                              this._i18n.locale,
-                              waterUsage,
-                              this._data.waterUnit
-                            )}
-                          </div>
-                          <span class="label"
-                            >${this._i18n.localize(
-                              "ui.panel.lovelace.cards.energy.energy_distribution.water"
-                            )}</span
-                          >
-                        </div>`
-                      : html`<div class="spacer"></div>`
-                  }
-                </div>`
-              : ""
-          }
-          <div
-            class="lines ${classMap({
-              high: hasBattery || (hasGas && hasWater),
-            })}"
-          >
+          <div class="lines">
             <div class="flow">
-              <svg
-                viewBox="0 0 100 100"
-                xmlns="http://www.w3.org/2000/svg"
-                preserveAspectRatio="xMidYMid slice"
-              >
+              <svg viewBox="0 0 500 330" xmlns="http://www.w3.org/2000/svg">
                 ${
                   hasReturnToGrid && hasSolarProduction
                     ? svg`<path
                     id="return"
                     class="return"
-                    d="M${hasBattery ? 45 : 47},0 v15 c0,${
-                      hasBattery ? "35 -10,30 -30,30" : "40 -10,35 -30,35"
-                    } h-20"
+                    d="M216,85 L174,115"
                     vector-effect="non-scaling-stroke"
                   ></path> `
                     : ""
@@ -829,9 +899,7 @@ class HuiEnergyDistrubutionCard extends LitElement implements LovelaceCard {
                     ? svg`<path
                     id="solar"
                     class="solar"
-                    d="M${hasBattery ? 55 : 53},0 v15 c0,${
-                      hasBattery ? "35 10,30 30,30" : "40 10,35 30,35"
-                    } h20"
+                    d="M263,100 L305,230"
                     vector-effect="non-scaling-stroke"
                   ></path>`
                     : ""
@@ -841,7 +909,7 @@ class HuiEnergyDistrubutionCard extends LitElement implements LovelaceCard {
                     ? svg`<path
                     id="battery-house"
                     class="battery-house"
-                    d="M55,100 v-15 c0,-35 10,-30 30,-30 h20"
+                    d="M347,180 L331,230"
                     vector-effect="non-scaling-stroke"
                   ></path>
                   ${
@@ -852,7 +920,7 @@ class HuiEnergyDistrubutionCard extends LitElement implements LovelaceCard {
                             "battery-from-grid": hasFlow(batteryFromGrid),
                             "battery-to-grid": hasFlow(batteryToGrid),
                           })}
-                          d="M45,100 v-15 c0,-35 -10,-30 -30,-30 h-20"
+                          d="M182,140 H318"
                           vector-effect="non-scaling-stroke"
                         ></path>`
                       : nothing
@@ -865,7 +933,7 @@ class HuiEnergyDistrubutionCard extends LitElement implements LovelaceCard {
                     ? svg`<path
                     id="battery-solar"
                     class="battery-solar"
-                    d="M50,0 V100"
+                    d="M284,85 L326,115"
                     vector-effect="non-scaling-stroke"
                   ></path>`
                     : ""
@@ -875,10 +943,32 @@ class HuiEnergyDistrubutionCard extends LitElement implements LovelaceCard {
                     ? svg`<path
                     class="grid"
                     id="grid"
-                    d="M0,${hasBattery ? 50 : hasSolarProduction ? 56 : 53} H100"
+                    d="M174,165 L284,245"
                     vector-effect="non-scaling-stroke"
               ></path>`
                     : nothing
+                }
+                ${
+                  hasEv
+                    ? svg`<path
+                        class="ev ev-solar"
+                        id="ev-solar"
+                        d="M237,100 L195,230"
+                        vector-effect="non-scaling-stroke"
+                      ></path>
+                      <path
+                        class="ev ev-battery"
+                        id="ev-battery"
+                        d="M326,165 L216,245"
+                        vector-effect="non-scaling-stroke"
+                      ></path>
+                      <path
+                        class="ev ev-grid"
+                        id="ev-grid"
+                        d="M153,180 L169,230"
+                        vector-effect="non-scaling-stroke"
+                      ></path>`
+                    : ""
                 }
               </svg>
               ${renderEnergyFlowDots(
@@ -927,6 +1017,21 @@ class HuiEnergyDistrubutionCard extends LitElement implements LovelaceCard {
                         className: "battery-to-grid",
                         duration: 6 - (batteryToGrid / totalLines) * 5,
                       },
+                      hasFlow(evFromSolar) && {
+                        path: "ev-solar",
+                        className: "ev-solar",
+                        duration: 6 - (evFromSolar / totalLines) * 5,
+                      },
+                      hasFlow(evFromBattery) && {
+                        path: "ev-battery",
+                        className: "ev-battery",
+                        duration: 6 - (evFromBattery / totalLines) * 5,
+                      },
+                      hasFlow(evFromGrid) && {
+                        path: "ev-grid",
+                        className: "ev-grid",
+                        duration: 6 - (evFromGrid / totalLines) * 5,
+                      },
                     ]
               )}
             </div>
@@ -967,33 +1072,38 @@ class HuiEnergyDistrubutionCard extends LitElement implements LovelaceCard {
     }
     .lines {
       position: absolute;
-      bottom: 0;
+      top: 0;
       left: 0;
       width: 100%;
-      height: 146px;
+      height: 100%;
       display: flex;
       justify-content: center;
-      padding: 0 16px 16px;
-      box-sizing: border-box;
+      pointer-events: none;
+    }
+    .lines .flow {
+      width: 100%;
+      height: 330px;
+      max-width: 500px;
     }
     .lines .flow > svg {
       width: 100%;
       height: 100%;
-    }
-    .lines.high {
-      bottom: 100px;
-      height: 156px;
-    }
-    .lines .flow {
-      width: calc(100% - 160px);
-      height: 100%;
-      max-width: 340px;
     }
     .row {
       display: flex;
       justify-content: space-between;
       max-width: 500px;
       margin: 0 auto;
+    }
+    /* Pentagon geometry: node centers at Solar (250,60), Grid (140,140),
+       Battery (360,140), EV (182,270), Home (318,270) in a 500x330 space.
+       Every edge is ~136px, so the five nodes form an equilateral pentagon. */
+    .row-middle {
+      width: 300px;
+      height: 130px;
+    }
+    .row-bottom {
+      width: 216px;
     }
     .circle-container {
       display: flex;
@@ -1005,7 +1115,6 @@ class HuiEnergyDistrubutionCard extends LitElement implements LovelaceCard {
     }
     .circle-container.solar {
       margin: 0 4px;
-      height: 130px;
     }
     .circle-container.gas {
       margin-left: 4px;
@@ -1015,14 +1124,11 @@ class HuiEnergyDistrubutionCard extends LitElement implements LovelaceCard {
       margin-left: 4px;
       height: 130px;
     }
-    .circle-container.water.bottom {
-      position: relative;
-      top: -20px;
-      margin-bottom: -20px;
-    }
-    .circle-container.battery {
-      height: 110px;
-      justify-content: flex-end;
+    .circle-container.grid,
+    .circle-container.battery,
+    .circle-container.ev,
+    .circle-container.home {
+      height: 100px;
     }
     .battery-soc {
       display: inline-flex;
@@ -1033,6 +1139,9 @@ class HuiEnergyDistrubutionCard extends LitElement implements LovelaceCard {
     }
     .spacer {
       width: 84px;
+    }
+    .narrow-spacer {
+      width: 56px;
     }
     .grid-spacer {
       width: 84px;
@@ -1167,6 +1276,56 @@ class HuiEnergyDistrubutionCard extends LitElement implements LovelaceCard {
     }
     .return {
       color: var(--energy-grid-return-color);
+    }
+    .ev .circle {
+      border-color: var(--energy-ev-color, #00bcd4);
+    }
+    .ev ha-svg-icon {
+      color: var(--energy-ev-color, #00bcd4);
+    }
+    /* The EV's inflow is drawn per source so the lines and dots match the
+       source breakdown shown inside the EV circle. */
+    path.ev.ev-solar,
+    circle.ev-solar {
+      stroke: var(--energy-solar-color);
+    }
+    path.ev.ev-battery,
+    circle.ev-battery {
+      stroke: var(--energy-battery-out-color);
+    }
+    path.ev.ev-grid,
+    circle.ev-grid {
+      stroke: var(--energy-grid-consumption-color);
+    }
+    circle.ev-solar,
+    circle.ev-battery,
+    circle.ev-grid {
+      stroke-width: 4;
+    }
+    circle.ev-solar {
+      fill: var(--energy-solar-color);
+    }
+    circle.ev-battery {
+      fill: var(--energy-battery-out-color);
+    }
+    circle.ev-grid {
+      fill: var(--energy-grid-consumption-color);
+    }
+    .ev-source {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      font-size: 11px;
+      line-height: 1.2;
+    }
+    .ev-source.ev-solar {
+      color: var(--energy-solar-color);
+    }
+    .ev-source.ev-battery {
+      color: var(--energy-battery-out-color);
+    }
+    .ev-source.ev-grid {
+      color: var(--energy-grid-consumption-color);
     }
     .grid .circle {
       border-color: var(--energy-grid-consumption-color);

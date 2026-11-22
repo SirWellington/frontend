@@ -34,3 +34,7 @@ patchedDependencies:
   sortablejs@1.15.7: patches/sortablejs@1.15.7.patch
   tinykeys@4.0.1: patches/tinykeys@4.0.1.patch
   workbox-build@7.4.1: patches/workbox-build@7.4.1.patch
+
+publicHoistPattern:
+  - '@babel/plugin-transform-class-properties'
+  - '@babel/plugin-transform-private-methods'
